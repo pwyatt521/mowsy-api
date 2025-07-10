@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 
@@ -15,6 +16,7 @@ import (
 )
 
 var ginLambda *ginadapter.GinLambda
+var initialized bool
 
 func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
@@ -23,26 +25,48 @@ func init() {
 	if os.Getenv("GIN_MODE") != "debug" {
 		gin.SetMode(gin.ReleaseMode)
 	}
+}
 
+func ensureInitialized() error {
+	if initialized {
+		return nil
+	}
+
+	log.Println("Initializing database...")
 	// Initialize database
 	if err := database.InitDB(); err != nil {
-		log.Fatalf("Failed to initialize database: %v", err)
+		return fmt.Errorf("failed to initialize database: %w", err)
 	}
 
+	log.Println("Running auto migrations...")
 	// Run auto migrations
 	if err := database.AutoMigrate(); err != nil {
-		log.Fatalf("Failed to run auto migrations: %v", err)
+		return fmt.Errorf("failed to run auto migrations: %w", err)
 	}
 
+	log.Println("Setting up routes...")
 	// Setup routes
 	r := routes.SetupRoutes()
 
 	// Create Gin Lambda adapter
 	ginLambda = ginadapter.New(r)
+	initialized = true
+	log.Println("Initialization complete")
+	return nil
 }
 
 func Handler(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	log.Printf("Request: %s %s", req.HTTPMethod, req.Path)
+	
+	// Ensure database and routes are initialized
+	if err := ensureInitialized(); err != nil {
+		log.Printf("Initialization failed: %v", err)
+		return events.APIGatewayProxyResponse{
+			StatusCode: 500,
+			Body:       `{"error":"Internal server error"}`,
+			Headers:    map[string]string{"Content-Type": "application/json"},
+		}, nil
+	}
 	
 	// Handle the request
 	return ginLambda.ProxyWithContext(ctx, req)

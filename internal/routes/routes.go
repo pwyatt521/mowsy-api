@@ -41,7 +41,7 @@ func SetupRoutes() *gin.Engine {
 	// r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	// Public routes
-	api := r.Group("/api/v1")
+	api := r.Group("/v1")
 	{
 		// Authentication routes
 		auth := api.Group("/auth")
