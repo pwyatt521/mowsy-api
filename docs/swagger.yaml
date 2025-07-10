@@ -1,0 +1,437 @@
+basePath: /api/v1
+definitions:
+  handlers.RefreshTokenRequest:
+    properties:
+      refresh_token:
+        type: string
+    required:
+    - refresh_token
+    type: object
+  handlers.UploadInsuranceDocumentRequest:
+    properties:
+      document_url:
+        type: string
+    required:
+    - document_url
+    type: object
+  models.ReviewResponse:
+    properties:
+      comment:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: integer
+      rating:
+        type: integer
+      reviewer:
+        $ref: '#/definitions/models.UserPublicProfile'
+      type:
+        $ref: '#/definitions/models.ReviewType'
+    type: object
+  models.ReviewType:
+    enum:
+    - job_completion
+    - equipment_rental
+    type: string
+    x-enum-varnames:
+    - ReviewTypeJobCompletion
+    - ReviewTypeEquipmentRental
+  models.UserPublicProfile:
+    properties:
+      created_at:
+        type: string
+      elementary_school_district_name:
+        type: string
+      first_name:
+        type: string
+      id:
+        type: integer
+      insurance_verified:
+        type: boolean
+      last_name:
+        type: string
+    type: object
+  models.UserResponse:
+    properties:
+      address:
+        type: string
+      city:
+        type: string
+      created_at:
+        type: string
+      elementary_school_district_name:
+        type: string
+      email:
+        type: string
+      first_name:
+        type: string
+      id:
+        type: integer
+      insurance_verified:
+        type: boolean
+      insurance_verified_at:
+        type: string
+      last_name:
+        type: string
+      phone:
+        type: string
+      state:
+        type: string
+      zip_code:
+        type: string
+    type: object
+  services.LoginRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  services.LoginResponse:
+    properties:
+      access_token:
+        type: string
+      refresh_token:
+        type: string
+      user:
+        $ref: '#/definitions/models.UserResponse'
+    type: object
+  services.RegisterRequest:
+    properties:
+      address:
+        type: string
+      city:
+        type: string
+      email:
+        type: string
+      first_name:
+        type: string
+      last_name:
+        type: string
+      password:
+        type: string
+      phone:
+        type: string
+      state:
+        type: string
+      zip_code:
+        type: string
+    required:
+    - email
+    - first_name
+    - last_name
+    - password
+    type: object
+  services.UpdateUserRequest:
+    properties:
+      address:
+        type: string
+      city:
+        type: string
+      first_name:
+        type: string
+      last_name:
+        type: string
+      phone:
+        type: string
+      state:
+        type: string
+      zip_code:
+        type: string
+    type: object
+  utils.ErrorResponseModel:
+    properties:
+      error:
+        example: error
+        type: string
+      message:
+        example: Invalid request
+        type: string
+    type: object
+  utils.SuccessResponseModel:
+    properties:
+      data: {}
+      message:
+        example: Operation completed successfully
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: support@swagger.io
+    name: API Support
+    url: http://www.swagger.io/support
+  description: A comprehensive API for lawn care and maintenance services
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  termsOfService: http://swagger.io/terms/
+  title: Mowsy API
+  version: "1.0"
+paths:
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticate user with email and password
+      parameters:
+      - description: User login credentials
+        in: body
+        name: credentials
+        required: true
+        schema:
+          $ref: '#/definitions/services.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: User logged in successfully
+          schema:
+            $ref: '#/definitions/services.LoginResponse'
+        "400":
+          description: Invalid request body
+          schema:
+            $ref: '#/definitions/utils.ErrorResponseModel'
+        "401":
+          description: Invalid credentials
+          schema:
+            $ref: '#/definitions/utils.ErrorResponseModel'
+      summary: Login user
+      tags:
+      - auth
+  /auth/logout:
+    post:
+      consumes:
+      - application/json
+      description: Logout the current user (client-side token cleanup)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: User logged out successfully
+          schema:
+            $ref: '#/definitions/utils.SuccessResponseModel'
+      security:
+      - BearerAuth: []
+      summary: Logout user
+      tags:
+      - auth
+  /auth/refresh:
+    post:
+      consumes:
+      - application/json
+      description: Refresh an expired access token using a valid refresh token
+      parameters:
+      - description: Refresh token
+        in: body
+        name: token
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.RefreshTokenRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Token refreshed successfully
+          schema:
+            $ref: '#/definitions/services.LoginResponse'
+        "400":
+          description: Invalid request body
+          schema:
+            $ref: '#/definitions/utils.ErrorResponseModel'
+        "401":
+          description: Invalid refresh token
+          schema:
+            $ref: '#/definitions/utils.ErrorResponseModel'
+      summary: Refresh access token
+      tags:
+      - auth
+  /auth/register:
+    post:
+      consumes:
+      - application/json
+      description: Register a new user account with email and password
+      parameters:
+      - description: User registration details
+        in: body
+        name: user
+        required: true
+        schema:
+          $ref: '#/definitions/services.RegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: User registered successfully
+          schema:
+            $ref: '#/definitions/services.LoginResponse'
+        "400":
+          description: Invalid request body or validation error
+          schema:
+            $ref: '#/definitions/utils.ErrorResponseModel'
+      summary: Register a new user
+      tags:
+      - auth
+  /users/{id}/profile:
+    get:
+      consumes:
+      - application/json
+      description: Get the public profile of a user by their ID
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: User public profile retrieved successfully
+          schema:
+            $ref: '#/definitions/models.UserPublicProfile'
+        "400":
+          description: Invalid user ID
+          schema:
+            $ref: '#/definitions/utils.ErrorResponseModel'
+        "404":
+          description: User not found
+          schema:
+            $ref: '#/definitions/utils.ErrorResponseModel'
+      summary: Get user public profile
+      tags:
+      - users
+  /users/{id}/reviews:
+    get:
+      consumes:
+      - application/json
+      description: Get all reviews for a specific user
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: User reviews retrieved successfully
+          schema:
+            items:
+              $ref: '#/definitions/models.ReviewResponse'
+            type: array
+        "400":
+          description: Invalid user ID
+          schema:
+            $ref: '#/definitions/utils.ErrorResponseModel'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/utils.ErrorResponseModel'
+      summary: Get user reviews
+      tags:
+      - users
+  /users/me:
+    get:
+      consumes:
+      - application/json
+      description: Get the profile of the currently authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: User profile retrieved successfully
+          schema:
+            $ref: '#/definitions/models.UserResponse'
+        "401":
+          description: User not authenticated
+          schema:
+            $ref: '#/definitions/utils.ErrorResponseModel'
+        "404":
+          description: User not found
+          schema:
+            $ref: '#/definitions/utils.ErrorResponseModel'
+      security:
+      - BearerAuth: []
+      summary: Get current user profile
+      tags:
+      - users
+    put:
+      consumes:
+      - application/json
+      description: Update the profile of the currently authenticated user
+      parameters:
+      - description: User update details
+        in: body
+        name: user
+        required: true
+        schema:
+          $ref: '#/definitions/services.UpdateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: User profile updated successfully
+          schema:
+            $ref: '#/definitions/models.UserResponse'
+        "400":
+          description: Invalid request body or validation error
+          schema:
+            $ref: '#/definitions/utils.ErrorResponseModel'
+        "401":
+          description: User not authenticated
+          schema:
+            $ref: '#/definitions/utils.ErrorResponseModel'
+      security:
+      - BearerAuth: []
+      summary: Update current user profile
+      tags:
+      - users
+  /users/me/insurance:
+    post:
+      consumes:
+      - application/json
+      description: Upload an insurance document for the current user
+      parameters:
+      - description: Insurance document details
+        in: body
+        name: document
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.UploadInsuranceDocumentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Insurance document uploaded successfully
+          schema:
+            $ref: '#/definitions/utils.SuccessResponseModel'
+        "400":
+          description: Invalid request body
+          schema:
+            $ref: '#/definitions/utils.ErrorResponseModel'
+        "401":
+          description: User not authenticated
+          schema:
+            $ref: '#/definitions/utils.ErrorResponseModel'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/utils.ErrorResponseModel'
+      security:
+      - BearerAuth: []
+      summary: Upload insurance document
+      tags:
+      - users
+securityDefinitions:
+  BearerAuth:
+    description: Type "Bearer" followed by a space and JWT token.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

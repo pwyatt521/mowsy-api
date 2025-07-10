@@ -1,0 +1,52 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+docs/
+
+# Environment files
+.env
+.env.local
+.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test files
+*_test.go
+coverage.out
+coverage.html
+
+# Build artifacts
+bootstrap
+lambda-deployment.zip
+bin/
+
+# Dependencies (will be downloaded in container)
+vendor/
+
+# GitHub
+.github/
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Make
+Makefile
+
+# Temporary files
+*.tmp
+*.temp
