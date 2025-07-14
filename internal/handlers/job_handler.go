@@ -28,7 +28,15 @@ func (h *JobHandler) GetJobs(c *gin.Context) {
 		return
 	}
 
-	jobs, err := h.jobService.GetJobs(filters)
+	// Check if user is authenticated (optional for public endpoint)
+	var userID *uint
+	if userIDValue, exists := c.Get("user_id"); exists {
+		if uid, ok := userIDValue.(uint); ok {
+			userID = &uid
+		}
+	}
+
+	jobs, err := h.jobService.GetJobsWithUser(filters, userID)
 	if err != nil {
 		utils.ErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
@@ -252,4 +260,41 @@ func (h *JobHandler) CompleteJob(c *gin.Context) {
 	}
 
 	utils.SuccessResponse(c, http.StatusOK, "Job completed successfully", nil)
+}
+
+// GetMyJobs godoc
+// @Summary Get current user's posted jobs
+// @Description Get all jobs posted by the currently authenticated user
+// @Tags jobs
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param status query string false "Filter by job status"
+// @Param category query string false "Filter by job category"
+// @Param page query int false "Page number (default: 1)"
+// @Param limit query int false "Items per page (default: 20, max: 100)"
+// @Success 200 {array} models.JobResponse "User's posted jobs retrieved successfully"
+// @Failure 401 {object} utils.ErrorResponseModel "User not authenticated"
+// @Failure 500 {object} utils.ErrorResponseModel "Internal server error"
+// @Router /jobs/my [get]
+func (h *JobHandler) GetMyJobs(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		utils.ErrorResponse(c, http.StatusUnauthorized, "User not authenticated")
+		return
+	}
+
+	var filters services.JobFilters
+	if err := c.ShouldBindQuery(&filters); err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, "Invalid query parameters")
+		return
+	}
+
+	jobs, err := h.jobService.GetJobsByUserID(userID.(uint), filters)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	utils.DataResponse(c, http.StatusOK, jobs)
 }

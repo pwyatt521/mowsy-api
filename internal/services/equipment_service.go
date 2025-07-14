@@ -61,6 +61,7 @@ type EquipmentFilters struct {
 	MinPrice     *float64                 `form:"min_price"`
 	MaxPrice     *float64                 `form:"max_price"`
 	IsAvailable  *bool                    `form:"is_available"`
+	Filter       *bool                    `form:"filter"`
 	Page         int                      `form:"page"`
 	Limit        int                      `form:"limit"`
 }
@@ -95,6 +96,11 @@ func (s *EquipmentService) CreateEquipment(userID uint, req CreateEquipmentReque
 		geocodioService := NewGeocodioService()
 		if err := geocodioService.GeocodeEquipment(&equipment); err != nil {
 			fmt.Printf("Warning: Failed to geocode equipment address: %v\n", err)
+			// Fallback to user's location when geocoding fails
+			equipment.Latitude = user.Latitude
+			equipment.Longitude = user.Longitude
+			equipment.ZipCode = user.ZipCode
+			equipment.ElementarySchoolDistrictName = user.ElementarySchoolDistrictName
 		}
 	} else {
 		equipment.Latitude = user.Latitude
@@ -116,6 +122,10 @@ func (s *EquipmentService) CreateEquipment(userID uint, req CreateEquipmentReque
 }
 
 func (s *EquipmentService) GetEquipment(filters EquipmentFilters) ([]models.EquipmentResponse, error) {
+	return s.GetEquipmentWithUser(filters, nil)
+}
+
+func (s *EquipmentService) GetEquipmentWithUser(filters EquipmentFilters, userID *uint) ([]models.EquipmentResponse, error) {
 	query := s.db.Preload("User")
 
 	if filters.IsAvailable == nil {
@@ -123,6 +133,25 @@ func (s *EquipmentService) GetEquipment(filters EquipmentFilters) ([]models.Equi
 		filters.IsAvailable = &available
 	}
 	query = query.Where("is_available = ?", *filters.IsAvailable)
+
+	// Apply filter logic if filter=true and userID is provided
+	if filters.Filter != nil && *filters.Filter && userID != nil {
+		// Get the requesting user's location info
+		var user models.User
+		if err := s.db.First(&user, *userID).Error; err != nil {
+			return nil, fmt.Errorf("failed to get user: %w", err)
+		}
+
+		// Exclude user's own equipment
+		query = query.Where("user_id != ?", *userID)
+
+		// Apply visibility-based location filtering
+		query = query.Where(
+			"(visibility = ? AND zip_code = ?) OR (visibility = ? AND elementary_school_district_name = ?)",
+			models.VisibilityZipCode, user.ZipCode,
+			models.VisibilitySchoolDistrict, user.ElementarySchoolDistrictName,
+		)
+	}
 
 	if filters.Visibility != "" {
 		query = query.Where("visibility = ?", filters.Visibility)
@@ -249,6 +278,15 @@ func (s *EquipmentService) UpdateEquipment(equipmentID, userID uint, req UpdateE
 		geocodioService := NewGeocodioService()
 		if err := geocodioService.GeocodeEquipment(&equipment); err != nil {
 			fmt.Printf("Warning: Failed to geocode equipment address: %v\n", err)
+			// Fallback to user's location when geocoding fails
+			user, err := NewUserService().GetUserByID(equipment.UserID)
+			if err == nil {
+				equipment.Latitude = user.Latitude
+				equipment.Longitude = user.Longitude
+				equipment.ZipCode = user.ZipCode
+				equipment.ElementarySchoolDistrictName = user.ElementarySchoolDistrictName
+				s.db.Save(&equipment)
+			}
 		} else {
 			s.db.Save(&equipment)
 		}
@@ -427,4 +465,49 @@ func (s *EquipmentService) CompleteRental(rentalID, userID uint, returnNotes str
 	}
 
 	return nil
+}
+
+func (s *EquipmentService) GetEquipmentByUserID(userID uint, filters EquipmentFilters) ([]models.EquipmentResponse, error) {
+	query := s.db.Where("user_id = ?", userID)
+
+	// Apply filters
+	if filters.Category != "" {
+		query = query.Where("category = ?", filters.Category)
+	}
+	if filters.IsAvailable != nil {
+		query = query.Where("is_available = ?", *filters.IsAvailable)
+	}
+	if filters.FuelType != "" {
+		query = query.Where("fuel_type = ?", filters.FuelType)
+	}
+	if filters.PowerType != "" {
+		query = query.Where("power_type = ?", filters.PowerType)
+	}
+
+	// Pagination
+	page := filters.Page
+	if page <= 0 {
+		page = 1
+	}
+	limit := filters.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	offset := (page - 1) * limit
+
+	var equipment []models.Equipment
+	if err := query.Preload("User").
+		Order("created_at DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&equipment).Error; err != nil {
+		return nil, fmt.Errorf("failed to get user equipment: %w", err)
+	}
+
+	responses := make([]models.EquipmentResponse, len(equipment))
+	for i, eq := range equipment {
+		responses[i] = eq.ToResponse()
+	}
+
+	return responses, nil
 }

@@ -29,7 +29,15 @@ func (h *EquipmentHandler) GetEquipment(c *gin.Context) {
 		return
 	}
 
-	equipment, err := h.equipmentService.GetEquipment(filters)
+	// Check if user is authenticated (optional for public endpoint)
+	var userID *uint
+	if userIDValue, exists := c.Get("user_id"); exists {
+		if uid, ok := userIDValue.(uint); ok {
+			userID = &uid
+		}
+	}
+
+	equipment, err := h.equipmentService.GetEquipmentWithUser(filters, userID)
 	if err != nil {
 		utils.ErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
@@ -254,4 +262,43 @@ func (h *EquipmentHandler) CompleteRental(c *gin.Context) {
 	}
 
 	utils.SuccessResponse(c, http.StatusOK, "Rental completed successfully", nil)
+}
+
+// GetMyEquipment godoc
+// @Summary Get current user's posted equipment
+// @Description Get all equipment posted by the currently authenticated user
+// @Tags equipment
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param category query string false "Filter by equipment category"
+// @Param is_available query bool false "Filter by availability status"
+// @Param fuel_type query string false "Filter by fuel type"
+// @Param power_type query string false "Filter by power type"
+// @Param page query int false "Page number (default: 1)"
+// @Param limit query int false "Items per page (default: 20, max: 100)"
+// @Success 200 {array} models.EquipmentResponse "User's posted equipment retrieved successfully"
+// @Failure 401 {object} utils.ErrorResponseModel "User not authenticated"
+// @Failure 500 {object} utils.ErrorResponseModel "Internal server error"
+// @Router /equipment/my [get]
+func (h *EquipmentHandler) GetMyEquipment(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		utils.ErrorResponse(c, http.StatusUnauthorized, "User not authenticated")
+		return
+	}
+
+	var filters services.EquipmentFilters
+	if err := c.ShouldBindQuery(&filters); err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, "Invalid query parameters")
+		return
+	}
+
+	equipment, err := h.equipmentService.GetEquipmentByUserID(userID.(uint), filters)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	utils.DataResponse(c, http.StatusOK, equipment)
 }

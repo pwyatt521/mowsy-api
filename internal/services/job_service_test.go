@@ -493,3 +493,287 @@ func TestJobService_DeleteJob(t *testing.T) {
 		assert.Contains(t, err.Error(), "cannot delete job that is not open")
 	})
 }
+
+func TestJobService_GetJobsByUserID(t *testing.T) {
+	service, db := setupJobService()
+	defer testutils.CleanupTestDB(db)
+
+	// Create test users
+	user1 := testutils.CreateTestUser(db)
+	user2 := &models.User{
+		Email:     "user2@example.com",
+		FirstName: "User2",
+		LastName:  "Test",
+		IsActive:  true,
+	}
+	err := db.Create(user2).Error
+	require.NoError(t, err)
+
+	// Create jobs for user1
+	job1 := &models.Job{
+		UserID:      user1.ID,
+		Title:       "Mowing Job 1",
+		Category:    models.JobCategoryMowing,
+		FixedPrice:  50.00,
+		Status:      models.JobStatusOpen,
+		Visibility:  models.VisibilityZipCode,
+	}
+	err = db.Create(job1).Error
+	require.NoError(t, err)
+
+	job2 := &models.Job{
+		UserID:      user1.ID,
+		Title:       "Weeding Job 1",
+		Category:    models.JobCategoryWeeding,
+		FixedPrice:  30.00,
+		Status:      models.JobStatusCompleted,
+		Visibility:  models.VisibilityZipCode,
+	}
+	err = db.Create(job2).Error
+	require.NoError(t, err)
+
+	// Create job for user2
+	job3 := &models.Job{
+		UserID:      user2.ID,
+		Title:       "User2 Job",
+		Category:    models.JobCategoryMowing,
+		FixedPrice:  40.00,
+		Status:      models.JobStatusOpen,
+		Visibility:  models.VisibilityZipCode,
+	}
+	err = db.Create(job3).Error
+	require.NoError(t, err)
+
+	t.Run("GetAllUserJobs", func(t *testing.T) {
+		filters := JobFilters{}
+
+		jobs, err := service.GetJobsByUserID(user1.ID, filters)
+
+		require.NoError(t, err)
+		assert.Len(t, jobs, 2)
+		assert.Equal(t, job2.Title, jobs[0].Title) // Most recent first (by created_at DESC)
+		assert.Equal(t, job1.Title, jobs[1].Title)
+	})
+
+	t.Run("FilterByStatus", func(t *testing.T) {
+		filters := JobFilters{
+			Status: models.JobStatusOpen,
+		}
+
+		jobs, err := service.GetJobsByUserID(user1.ID, filters)
+
+		require.NoError(t, err)
+		assert.Len(t, jobs, 1)
+		assert.Equal(t, job1.Title, jobs[0].Title)
+	})
+
+	t.Run("FilterByCategory", func(t *testing.T) {
+		filters := JobFilters{
+			Category: models.JobCategoryWeeding,
+		}
+
+		jobs, err := service.GetJobsByUserID(user1.ID, filters)
+
+		require.NoError(t, err)
+		assert.Len(t, jobs, 1)
+		assert.Equal(t, job2.Title, jobs[0].Title)
+	})
+
+	t.Run("Pagination", func(t *testing.T) {
+		filters := JobFilters{
+			Page:  1,
+			Limit: 1,
+		}
+
+		jobs, err := service.GetJobsByUserID(user1.ID, filters)
+
+		require.NoError(t, err)
+		assert.Len(t, jobs, 1)
+		assert.Equal(t, job2.Title, jobs[0].Title) // Most recent first
+	})
+
+	t.Run("EmptyResultForOtherUser", func(t *testing.T) {
+		filters := JobFilters{}
+
+		jobs, err := service.GetJobsByUserID(99999, filters)
+
+		require.NoError(t, err)
+		assert.Len(t, jobs, 0)
+	})
+
+	t.Run("DefaultPagination", func(t *testing.T) {
+		filters := JobFilters{
+			Page:  0, // Should default to 1
+			Limit: 0, // Should default to 20
+		}
+
+		jobs, err := service.GetJobsByUserID(user1.ID, filters)
+
+		require.NoError(t, err)
+		assert.Len(t, jobs, 2)
+	})
+}
+
+func TestJobService_GetJobsWithFilter(t *testing.T) {
+	service, db := setupJobService()
+	defer testutils.CleanupTestDB(db)
+
+	// Create test users in different locations
+	user1 := &models.User{
+		Email:                        "user1@example.com",
+		FirstName:                    "User1",
+		LastName:                     "Test",
+		ZipCode:                      "12345",
+		ElementarySchoolDistrictName: "District A",
+		IsActive:                     true,
+	}
+	err := db.Create(user1).Error
+	require.NoError(t, err)
+
+	user2 := &models.User{
+		Email:                        "user2@example.com",
+		FirstName:                    "User2",
+		LastName:                     "Test",
+		ZipCode:                      "12345", // Same zip as user1
+		ElementarySchoolDistrictName: "District B",
+		IsActive:                     true,
+	}
+	err = db.Create(user2).Error
+	require.NoError(t, err)
+
+	user3 := &models.User{
+		Email:                        "user3@example.com",
+		FirstName:                    "User3",
+		LastName:                     "Test",
+		ZipCode:                      "67890", // Different zip
+		ElementarySchoolDistrictName: "District A", // Same district as user1
+		IsActive:                     true,
+	}
+	err = db.Create(user3).Error
+	require.NoError(t, err)
+
+	user4 := &models.User{
+		Email:                        "user4@example.com",
+		FirstName:                    "User4",
+		LastName:                     "Test",
+		ZipCode:                      "99999", // Different zip
+		ElementarySchoolDistrictName: "District C", // Different district
+		IsActive:                     true,
+	}
+	err = db.Create(user4).Error
+	require.NoError(t, err)
+
+	// Create jobs with different visibility settings
+	// User1's own job (should be excluded from filtered results)
+	job1 := &models.Job{
+		UserID:                       user1.ID,
+		Title:                        "User1 Job - Should be excluded",
+		Category:                     models.JobCategoryMowing,
+		FixedPrice:                   50.00,
+		Status:                       models.JobStatusOpen,
+		ZipCode:                      user1.ZipCode,
+		ElementarySchoolDistrictName: user1.ElementarySchoolDistrictName,
+		Visibility:                   models.VisibilityZipCode,
+	}
+	err = db.Create(job1).Error
+	require.NoError(t, err)
+
+	// User2's job - same zip as user1, should be visible with zip_code visibility
+	job2 := &models.Job{
+		UserID:                       user2.ID,
+		Title:                        "User2 Job - Same Zip",
+		Category:                     models.JobCategoryWeeding,
+		FixedPrice:                   30.00,
+		Status:                       models.JobStatusOpen,
+		ZipCode:                      user2.ZipCode,
+		ElementarySchoolDistrictName: user2.ElementarySchoolDistrictName,
+		Visibility:                   models.VisibilityZipCode,
+	}
+	err = db.Create(job2).Error
+	require.NoError(t, err)
+
+	// User3's job - same district as user1, should be visible with school_district visibility
+	job3 := &models.Job{
+		UserID:                       user3.ID,
+		Title:                        "User3 Job - Same District",
+		Category:                     models.JobCategoryTrimming,
+		FixedPrice:                   40.00,
+		Status:                       models.JobStatusOpen,
+		ZipCode:                      user3.ZipCode,
+		ElementarySchoolDistrictName: user3.ElementarySchoolDistrictName,
+		Visibility:                   models.VisibilitySchoolDistrict,
+	}
+	err = db.Create(job3).Error
+	require.NoError(t, err)
+
+	// User4's job - different zip and district, should NOT be visible
+	job4 := &models.Job{
+		UserID:                       user4.ID,
+		Title:                        "User4 Job - Should NOT be visible",
+		Category:                     models.JobCategoryMowing,
+		FixedPrice:                   60.00,
+		Status:                       models.JobStatusOpen,
+		ZipCode:                      user4.ZipCode,
+		ElementarySchoolDistrictName: user4.ElementarySchoolDistrictName,
+		Visibility:                   models.VisibilityZipCode,
+	}
+	err = db.Create(job4).Error
+	require.NoError(t, err)
+
+	t.Run("FilterEnabled_ExcludesOwnJobs_AppliesVisibilityFiltering", func(t *testing.T) {
+		filterEnabled := true
+		filters := JobFilters{
+			Filter: &filterEnabled,
+		}
+
+		jobs, err := service.GetJobsWithUser(filters, &user1.ID)
+
+		require.NoError(t, err)
+		assert.Len(t, jobs, 2) // Should see job2 (same zip) and job3 (same district), but not job1 (own) or job4 (different location)
+		
+		// Check that we get the correct jobs
+		jobTitles := make([]string, len(jobs))
+		for i, job := range jobs {
+			jobTitles[i] = job.Title
+		}
+		assert.Contains(t, jobTitles, "User2 Job - Same Zip")
+		assert.Contains(t, jobTitles, "User3 Job - Same District")
+		assert.NotContains(t, jobTitles, "User1 Job - Should be excluded")
+		assert.NotContains(t, jobTitles, "User4 Job - Should NOT be visible")
+	})
+
+	t.Run("FilterDisabled_ShowsAllJobs", func(t *testing.T) {
+		filterEnabled := false
+		filters := JobFilters{
+			Filter: &filterEnabled,
+		}
+
+		jobs, err := service.GetJobsWithUser(filters, &user1.ID)
+
+		require.NoError(t, err)
+		assert.Len(t, jobs, 4) // Should see all jobs when filter is disabled
+	})
+
+	t.Run("FilterNotSet_ShowsAllJobs", func(t *testing.T) {
+		filters := JobFilters{
+			// Filter not set
+		}
+
+		jobs, err := service.GetJobsWithUser(filters, &user1.ID)
+
+		require.NoError(t, err)
+		assert.Len(t, jobs, 4) // Should see all jobs when filter is not set
+	})
+
+	t.Run("FilterEnabled_NoUserID_ShowsAllJobs", func(t *testing.T) {
+		filterEnabled := true
+		filters := JobFilters{
+			Filter: &filterEnabled,
+		}
+
+		jobs, err := service.GetJobsWithUser(filters, nil)
+
+		require.NoError(t, err)
+		assert.Len(t, jobs, 4) // Should see all jobs when no userID provided
+	})
+}

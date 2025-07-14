@@ -54,6 +54,7 @@ type JobFilters struct {
 	Status       models.JobStatus      `form:"status"`
 	MinPrice     *float64              `form:"min_price"`
 	MaxPrice     *float64              `form:"max_price"`
+	Filter       *bool                 `form:"filter"`
 	Page         int                   `form:"page"`
 	Limit        int                   `form:"limit"`
 }
@@ -91,6 +92,11 @@ func (s *JobService) CreateJob(userID uint, req CreateJobRequest) (*models.JobRe
 		geocodioService := NewGeocodioService()
 		if err := geocodioService.GeocodeJob(&job); err != nil {
 			fmt.Printf("Warning: Failed to geocode job address: %v\n", err)
+			// Fallback to user's location when geocoding fails
+			job.Latitude = user.Latitude
+			job.Longitude = user.Longitude
+			job.ZipCode = user.ZipCode
+			job.ElementarySchoolDistrictName = user.ElementarySchoolDistrictName
 		}
 	} else {
 		job.Latitude = user.Latitude
@@ -112,7 +118,30 @@ func (s *JobService) CreateJob(userID uint, req CreateJobRequest) (*models.JobRe
 }
 
 func (s *JobService) GetJobs(filters JobFilters) ([]models.JobResponse, error) {
+	return s.GetJobsWithUser(filters, nil)
+}
+
+func (s *JobService) GetJobsWithUser(filters JobFilters, userID *uint) ([]models.JobResponse, error) {
 	query := s.db.Preload("User").Where("status = ?", models.JobStatusOpen)
+
+	// Apply filter logic if filter=true and userID is provided
+	if filters.Filter != nil && *filters.Filter && userID != nil {
+		// Get the requesting user's location info
+		var user models.User
+		if err := s.db.First(&user, *userID).Error; err != nil {
+			return nil, fmt.Errorf("failed to get user: %w", err)
+		}
+
+		// Exclude user's own jobs
+		query = query.Where("user_id != ?", *userID)
+
+		// Apply visibility-based location filtering
+		query = query.Where(
+			"(visibility = ? AND zip_code = ?) OR (visibility = ? AND elementary_school_district_name = ?)",
+			models.VisibilityZipCode, user.ZipCode,
+			models.VisibilitySchoolDistrict, user.ElementarySchoolDistrictName,
+		)
+	}
 
 	if filters.Visibility != "" {
 		query = query.Where("visibility = ?", filters.Visibility)
@@ -233,6 +262,16 @@ func (s *JobService) UpdateJob(jobID, userID uint, req UpdateJobRequest) (*model
 		geocodioService := NewGeocodioService()
 		if err := geocodioService.GeocodeJob(&job); err != nil {
 			fmt.Printf("Warning: Failed to geocode job address: %v\n", err)
+			// Fallback to user's location when geocoding fails
+			userService := &UserService{db: s.db}
+			user, err := userService.GetUserByID(job.UserID)
+			if err == nil {
+				job.Latitude = user.Latitude
+				job.Longitude = user.Longitude
+				job.ZipCode = user.ZipCode
+				job.ElementarySchoolDistrictName = user.ElementarySchoolDistrictName
+				s.db.Save(&job)
+			}
 		} else {
 			s.db.Save(&job)
 		}
@@ -381,4 +420,43 @@ func (s *JobService) CompleteJob(jobID, userID uint, imageUrls []string) error {
 	}
 
 	return nil
+}
+
+func (s *JobService) GetJobsByUserID(userID uint, filters JobFilters) ([]models.JobResponse, error) {
+	query := s.db.Where("user_id = ?", userID)
+
+	// Apply filters
+	if filters.Status != "" {
+		query = query.Where("status = ?", filters.Status)
+	}
+	if filters.Category != "" {
+		query = query.Where("category = ?", filters.Category)
+	}
+
+	// Pagination
+	page := filters.Page
+	if page <= 0 {
+		page = 1
+	}
+	limit := filters.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	offset := (page - 1) * limit
+
+	var jobs []models.Job
+	if err := query.Preload("User").
+		Order("created_at DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&jobs).Error; err != nil {
+		return nil, fmt.Errorf("failed to get user jobs: %w", err)
+	}
+
+	responses := make([]models.JobResponse, len(jobs))
+	for i, job := range jobs {
+		responses[i] = job.ToResponse()
+	}
+
+	return responses, nil
 }

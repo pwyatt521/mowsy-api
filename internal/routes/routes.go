@@ -91,6 +91,7 @@ func SetupRoutes() *gin.Engine {
 		// Job management
 		jobs := protected.Group("/jobs")
 		{
+			jobs.GET("/my", jobHandler.GetMyJobs)
 			jobs.POST("", jobHandler.CreateJob)
 			jobs.PUT("/:id", jobHandler.UpdateJob)
 			jobs.DELETE("/:id", jobHandler.DeleteJob)
@@ -103,6 +104,7 @@ func SetupRoutes() *gin.Engine {
 		// Equipment management
 		equipment := protected.Group("/equipment")
 		{
+			equipment.GET("/my", equipmentHandler.GetMyEquipment)
 			equipment.POST("", equipmentHandler.CreateEquipment)
 			equipment.PUT("/:id", equipmentHandler.UpdateEquipment)
 			equipment.DELETE("/:id", equipmentHandler.DeleteEquipment)
